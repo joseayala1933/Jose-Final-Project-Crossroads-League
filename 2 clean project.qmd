@@ -14,6 +14,8 @@ format:
     code-summary: "Show Code"
     smooth-scroll: true
     toc-depth: 3
+    embed-resources: true     # <— add this
+    self-contained: true      # <— and this
 execute:
   echo: true
   warning: false
@@ -91,7 +93,7 @@ datatable(
 )
 ```
 
-## Hitting Charts 
+## Hitting Charts
 
 ### Top 10 Hitters in the Crossroads League (AVG)
 
@@ -122,7 +124,7 @@ plot_ly(
 
 ```
 
-### Top 10 Hitters Comparison 
+### Top 10 Hitters Comparison
 
 **What it shows:** Grouped bars where each stat is scaled to 0–1 so different units are comparable.\
 **How to read it:** Within each player group, taller bars indicate relatively stronger performance for that metric. This reveals whether a player’s value comes from contact, power, or getting on base.\
@@ -596,7 +598,7 @@ fig
 
 ## Pitching Charts
 
-### Top 10 Starting Pitchers 
+### Top 10 Starting Pitchers
 
 **What it shows:** Bar chart ranking starters by ERA with hover showing IP, K, W, WHIP and GS.\
 **How to read it:** Lower ERA is better; use IP and WHIP context to judge durability/efficiency.\
@@ -631,7 +633,7 @@ plot_ly(
   )
 ```
 
-### WAR Pitchers 
+### WAR Pitchers
 
 **What it shows:** Table ranking pitchers by `WAR_est` derived from ERA and innings pitched.\
 **How to read it:** This gives a quick value estimate for starters; note the simplified math and describe limitations in the write-up.
@@ -776,9 +778,9 @@ datatable(
 
 ```
 
-## Team Analysis 
+## Team Analysis
 
-### Top 25 Players in the Crossroads League 
+### Top 25 Players in the Crossroads League
 
 **What it shows:** Interactive table of WAR components and a bar chart of the top 25 players by `WAR_est_mix`. Hover shows OffRuns / FieldingRuns / PosAdjRuns breakdown.\
 **How to read it:** Higher WAR_est_mix = more wins contributed above replacement-level proxy. Use the component breakdown to see whether value is offensive or defensive.\
@@ -971,12 +973,12 @@ plot_ly(
 
 ```
 
-### Team Offensive Strength 
+### Team Offensive Strength
 
 **What it shows:** Each point is a team; hover reveals OPS, HR, and RBI totals.\
 **How to read it:** Upper-right quadrant = teams that both get on base and hit for power (most dangerous offensively).
 
-### Team Pitching Efficiency 
+### Team Pitching Efficiency
 
 **What it shows:** Each point is a team; hover reveals ERA, strikeouts, wins and WHIP.\
 **How to read it:** Lower ERA with high strikeouts indicates strong run prevention and swing-and-miss ability
@@ -1217,7 +1219,7 @@ dt_power
 
 ```
 
-# General Notes 
+# General Notes
 
 **Data & scope**
 
@@ -1255,7 +1257,7 @@ Below is a short glossary of key baseball and analytical terms used throughout t
 It provides quick definitions for both baseball-specific and statistical metrics.
 
 | Term | Definition |
-|-----------------------|-------------------------------------------------|
+|-----------------------|------------------------------------------------|
 | **AB (At-Bats)** | The number of official batting attempts, excluding walks, sacrifices, or hit-by-pitch. |
 | **AVG (Batting Average)** | Hits divided by at-bats, measures how often a player gets a hit. |
 | **OBP (On-Base Percentage)** | How often a player reaches base (via hits, walks, or hit-by-pitch). |
