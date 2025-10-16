@@ -1,0 +1,1285 @@
+---
+title: "Crossroads League Baseball Analysis"
+subtitle: "Hitting, Pitching, Fielding, WAR, and Team Performance Predictions"
+author: "Jose Ayala"
+date: "2025-10-14"
+format:
+  html:
+    toc: true
+    toc-title: "Table of Contents"
+    toc-location: left
+    theme: cosmo
+    number-sections: true
+    code-fold: true
+    code-summary: "Show Code"
+    smooth-scroll: true
+    toc-depth: 3
+execute:
+  echo: true
+  warning: false
+  message: false
+  cache: true
+---
+
+# Crossroad League Analysis
+
+![](images/crossroadslogo.png)
+
+**This project analyzes player performance in the Crossroads League baseball season, focusing on both hitting and pitching statistics. Using real game data, the analysis identifies the top performers across all teams, providing interactive visualizations and tables to explore player rankings.**
+
+**For hitters, the project highlights the, top 10 players per team based on key offensive metrics such as batting average, on-base percentage, slugging percentage, and OPS. For pitchers, it identifies th  top 10 starting pitchers in the league(minimum seven games started), ranked by earned run average (ERA), strikeouts, and WHIP.**
+
+**We are using interactive charts, dropdown selections, and sortable tables, users can easily compare teams, evaluate individual player performances, and discover insights into which players had the most impact during the season.**
+
+```{r}
+library(readr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(DT)
+library(plotly)
+library(scales) 
+library(janitor) 
+
+hitters_raw  <- read_csv("~/Downloads/baseball_data-2.csv", show_col_types = FALSE)
+pitchers_raw <- read_csv("~/Downloads/baseball_data_pitchers.csv", show_col_types = FALSE)
+fielding_raw <- read_csv("~/Downloads/baseball_data_fielding.csv", show_col_types = FALSE)
+
+hitters <- hitters_raw %>%
+  mutate(
+    Name = str_squish(Name),
+    team = str_squish(team),
+    across(c(ab, h, hr, rbi, xbh), as.numeric),
+    across(c(avg, obp, slg), ~ as.numeric(.x)),
+    OPS = obp + slg
+  )
+
+pitchers <- pitchers_raw %>%
+  mutate(
+    Name = str_squish(Name),
+    team = str_squish(team),
+    across(c(era, ip, gs, w, k, whip), as.numeric)
+  )
+
+fielding <- fielding_raw
+
+```
+
+## Interactive Tables (Hitting, Fielding, Pitching)
+
+```{r}
+datatable(
+  hitters,
+  caption = "Hitting Statistics",
+  options = list(pageLength = 10, scrollX = TRUE),
+  rownames = FALSE,
+  filter = "top"
+)
+datatable(
+  pitchers,
+  caption = "Pitching Statistics",
+  options = list(pageLength = 10, scrollX = TRUE),
+  rownames = FALSE,
+  filter = "top"
+)
+datatable(
+  fielding,
+  caption = "Fielding Statistics",
+  options = list(pageLength = 10, scrollX = TRUE),
+  rownames = FALSE,
+  filter = "top"
+)
+```
+
+## Hitting Charts 
+
+### Top 10 Hitters in the Crossroads League (AVG)
+
+**What it shows:** A vertical bar chart ranking the ten players with the highest batting averages. Hover reveals hits, AB, HR and OBP.\
+**How to read it:** Taller bars = higher batting average. Use the hover text to compare opportunities (AB) so you don’t overvalue small-sample rates.\
+**Interpretation tip:** Combine AVG with OBP/OPS to identify hitters who both hit for average and get on base. Note sample cutoff (AB ≥ 60) eliminates small-sample noise.
+
+```{r}
+top_hitters_avg <- hitters %>%
+  filter(ab >= 60) %>%
+  arrange(desc(avg)) %>%
+  slice_head(n = 10) %>%
+  mutate(Name = factor(Name, levels = rev(Name)))  # levels in display order
+plot_ly(
+  data = top_hitters_avg,
+  x = ~Name,
+  y = ~avg,
+  type = "bar",
+  text = ~paste("Hits:", h, "<br>AB:", ab, "<br>HR:", hr, "<br>OBP:", obp),
+  hoverinfo = "text",
+  marker = list(color = "navy")
+) %>%
+  layout(
+    title = "Top 10 Hitters by Batting Average (AB ≥ 60)",
+    xaxis = list(title = "Player", tickangle = -45),
+    yaxis = list(title = "AVG", tickformat = ".3f")
+  )
+
+```
+
+### Top 10 Hitters Comparison 
+
+**What it shows:** Grouped bars where each stat is scaled to 0–1 so different units are comparable.\
+**How to read it:** Within each player group, taller bars indicate relatively stronger performance for that metric. This reveals whether a player’s value comes from contact, power, or getting on base.\
+**Interpretation tip:** Use this to spot players who are balanced across metrics versus specialists (e.g., high HR but lower OBP).
+
+```{r}
+metrics <- c("avg","hr","xbh","obp")
+
+comp_norm <- hitters %>%
+  filter(ab >= 60) %>%
+  arrange(desc(avg)) %>%
+  slice_head(n = 10) %>%
+  mutate(across(all_of(metrics), ~ rescale(.x, to = c(0,1)))) %>%
+  pivot_longer(all_of(metrics), names_to = "metric", values_to = "value") %>%
+  mutate(Name = factor(Name, levels = unique(Name)))
+
+plot_ly(
+  comp_norm,
+  x = ~Name, y = ~value, color = ~metric, type = "bar"
+) %>%
+  layout(
+    barmode = "group",
+    title = "Top 10 Hitters — Normalized Comparison (0–1)",
+    xaxis = list(title = "Player", tickangle = -45),
+    yaxis = list(title = "Normalized Value")
+  )
+
+```
+
+### Top 10 hitters by OPS
+
+**What it shows:** Players ranked by combined on-base and slugging performance. Hover shows AVG, OBP, SLG, HR, RBI, AB.\
+**How to read it:** OPS is a simple composite of on-base skills and power, higher is better. Compare with AVG chart to see if top AVG hitters also provide power/plate discipline.\
+**Interpretation tip:** OPS is a good offensive summary but doesn’t capture defense or baserunning.
+
+```{r}
+top_hitters_ops <- hitters %>%
+  filter(ab >= 60) %>%
+  arrange(desc(OPS)) %>%
+  slice_head(n = 10) %>%
+  mutate(Name = factor(Name, levels = rev(Name)))
+
+plot_ly(
+  data = top_hitters_ops,
+  x = ~Name, y = ~OPS, type = "bar",
+  text = ~paste("AVG:", avg, "<br>OBP:", obp, "<br>SLG:", slg,
+                "<br>HR:", hr, "<br>RBI:", rbi, "<br>AB:", ab),
+  hoverinfo = "text",
+  marker = list(color = "lightblue")
+) %>%
+  layout(
+    title = "Top 10 Hitters by OPS (AB ≥ 60)",
+    xaxis = list(title = "Player", tickangle = -45),
+    yaxis = list(title = "OPS")
+  )
+
+```
+
+### Top 5 Hitters by Team
+
+**What it shows:** For whichever team is selected, the chart shows the five players with the highest OPS on that roster. Hover reveals supporting stats.\
+**How to read it:** Use the dropdown to compare how teams are constructed offensively (a single player vs. balanced lineup).\
+**Interpretation tip:** Helpful for scout-style comparisons; check AB to ensure pecking order reflects regular playing time.
+
+```{r}
+top5_team <- hitters %>%
+  filter(ab >= 60) %>%
+  group_by(team) %>%
+  arrange(desc(OPS), .by_group = TRUE) %>%
+  slice_head(n = 5) %>%
+  ungroup()
+teams <- sort(unique(top5_team$team))
+default_team <- teams[1]
+d0 <- top5_team %>%
+  filter(team == default_team) %>%
+  arrange(OPS) %>%
+  mutate(Name = factor(Name, levels = Name))
+
+p <- plot_ly(
+  data = d0,
+  x = ~Name, y = ~OPS, type = "bar",
+  text = ~paste("AVG:", avg, "<br>OBP:", obp, "<br>SLG:", slg,
+                "<br>HR:", hr, "<br>RBI:", rbi, "<br>AB:", ab),
+  hoverinfo = "text",
+  marker = list(color = "navy")
+) %>%
+  layout(
+    title = "Top 5 Hitters by OPS — Select Team",
+    xaxis = list(title = "Player", tickangle = -45),
+    yaxis = list(title = "OPS"),
+    updatemenus = list(
+      list(
+        type = "dropdown",
+        x = 1.12, y = 1.12,
+        showactive = TRUE,
+        buttons = lapply(teams, function(tt) {
+          dd <- top5_team %>%
+            filter(team == tt) %>%
+            arrange(OPS)
+          list(
+            method = "restyle",
+            label = tt,
+            args = list(
+              list(
+                x = list(factor(dd$Name, levels = dd$Name)),
+                y = list(dd$OPS),
+                text = list(paste("AVG:", dd$avg, "<br>OBP:", dd$obp,
+                                  "<br>SLG:", dd$slg, "<br>HR:", dd$hr,
+                                  "<br>RBI:", dd$rbi, "<br>AB:", dd$ab))
+              )
+            )
+          )
+        })
+      )
+    )
+  )
+
+p
+
+```
+
+### Comparison of top 5 Hitters ( Choose two teams)
+
+**What it shows:** Grouped bars comparing the two teams’ top hitters on OPS, with hover details.\
+**How to read it:** Choose any pair of teams to directly compare their best hitters. Look for cross-team advantages in OPS depth.\
+**Interpretation tip:** Useful when arguing which team has the stronger top lineup or more depth.
+
+```{r}
+#| label: compare_top5_hitters_2
+#| echo: true
+#| warning: false
+#| message: false
+library(readr)
+library(dplyr)
+library(stringr)
+library(plotly)
+df <- read_csv("~/Downloads/baseball_data-2.csv", show_col_types = FALSE) %>%
+  mutate(
+    Name = str_squish(Name),
+    team = str_squish(team),
+    ab   = suppressWarnings(as.numeric(ab)),
+    hr   = suppressWarnings(as.numeric(hr)),
+    rbi  = suppressWarnings(as.numeric(rbi)),
+    avg  = suppressWarnings(as.numeric(avg)),
+    obp  = suppressWarnings(as.numeric(obp)),
+    slg  = suppressWarnings(as.numeric(slg)),
+    OPS  = obp + slg
+  )
+top_per_team <- df %>%
+  filter(ab >= 60) %>%
+  group_by(team) %>%
+  arrange(desc(OPS), .by_group = TRUE) %>%
+  slice_head(n = 5) %>%
+  ungroup()
+teams <- sort(unique(top_per_team$team))
+pairs <- combn(teams, 2, simplify = FALSE)
+pair_data <- function(t1, t2) {
+  d1 <- top_per_team %>% filter(team == t1) %>% arrange(desc(OPS))
+  d2 <- top_per_team %>% filter(team == t2) %>% arrange(desc(OPS))
+  list(d1 = d1, d2 = d2)
+}
+
+init_pair <- pairs[[1]]
+pd <- pair_data(init_pair[1], init_pair[2])
+
+mk_text <- function(d) {
+  paste0(
+    "<b>", d$Name, "</b> (", d$team, ")",
+    "<br>OPS: ", round(d$OPS, 3),
+    "<br>AVG: ", round(d$avg, 3),
+    "<br>OBP: ", round(d$obp, 3),
+    "<br>SLG: ", round(d$slg, 3),
+    "<br>HR: ", d$hr,
+    "<br>RBI: ", d$rbi,
+    "<br>AB: ", d$ab
+  )
+}
+p <- plot_ly() |>
+  add_bars(
+    x = pd$d1$Name, y = pd$d1$OPS,
+    name = init_pair[1],
+    text = mk_text(pd$d1), hoverinfo = "text"
+  ) |>
+  add_bars(
+    x = pd$d2$Name, y = pd$d2$OPS,
+    name = init_pair[2],
+    text = mk_text(pd$d2), hoverinfo = "text"
+  ) |>
+  layout(
+    barmode = "group",
+    title = paste("Top 5 Hitters Comparison:", init_pair[1], "vs", init_pair[2]),
+    xaxis = list(title = "Player", tickangle = -45),
+    yaxis = list(title = "OPS")
+  )
+buttons <- lapply(pairs, function(pp) {
+  d <- pair_data(pp[1], pp[2])
+  list(
+    method = "update",
+    label  = paste(pp[1], "vs", pp[2]),
+    args = list(
+      list(
+        x    = list(d$d1$Name, d$d2$Name),
+        y    = list(d$d1$OPS,  d$d2$OPS),
+        text = list(mk_text(d$d1), mk_text(d$d2)),
+        name = list(pp[1], pp[2])
+      ),
+      list(),  # no trace selection mask 
+      list(title = paste("Top 5 Hitters Comparison:", pp[1], "vs", pp[2]))
+    )
+  )
+})
+
+p <- layout(
+  p,
+  updatemenus = list(list(
+    type = "dropdown",
+    x = 1.12, y = 1.15, xanchor = "left",
+    showactive = TRUE,
+    buttons = buttons
+  ))
+)
+
+p
+```
+
+### Top Hitters in the League By WAR (Wins Above Replacement)
+
+**What is WAR?**
+
+In baseball, WAR stands for **Wins Above Replacement**, a statistic that quantifies a player's overall value to their team in terms of wins. It compares a player's performance across all aspects of the game (hitting, fielding, base running) to a hypothetical "replacement-level" player, determining how many additional wins their production contributes compared to that baseline.
+
+**What it shows:** Table ranking hitters by `WAR_est = (OPS - league_avg_OPS) / 0.12`.\
+**How to read it:** Higher WAR_est = more value vs a league-average hitter. Read the method note: this is a classroom proxy, not official WAR.\
+**Limitations:** No park/position/defense adjustments here, use blended WAR for fuller view.
+
+```{r}
+league_avg_OPS <- mean(hitters$OPS, na.rm = TRUE)
+
+war_hitters <- hitters %>%
+  mutate(
+    WAR_est = (OPS - league_avg_OPS) / 0.12  # assumed wins per OPS
+  ) %>%
+  arrange(desc(WAR_est)) %>%
+  slice_head(n = 30) %>%
+  select(Name, team, avg, obp, slg, OPS, WAR_est)
+
+datatable(
+  war_hitters,
+  caption = "Top 30 Hitters (Course WAR Proxy via OPS)",
+  options = list(pageLength = 10, scrollX = TRUE),
+  rownames = FALSE
+)
+
+```
+
+### Hitter vs League Average
+
+**What it shows:** Two-bar chart comparing a chosen player’s OPS with the league mean; shows percentile and delta.\
+**How to read it:** Use to highlight an individual’s offensive standing. Hover shows AB and percentile.\
+**Interpretation tip:** Useful for spotlight slides in a presentation.
+
+```{r}
+#| label: player_vs_league_ops
+#| echo: true
+#| message: false
+#| warning: false
+
+library(readr)
+library(dplyr)
+library(stringr)
+library(plotly)
+
+#player
+player_name <- "Kaleb Kolpien"   #change this to any player
+ab_min <- 60                    
+hitters <- read_csv("~/Downloads/baseball_data-2.csv", show_col_types = FALSE) %>%
+  mutate(
+    Name = str_squish(Name),
+    team = str_squish(team),
+    ab   = as.numeric(ab),
+    obp  = as.numeric(obp),
+    slg  = as.numeric(slg),
+    OPS  = obp + slg
+  )
+league_pool <- hitters %>% filter(!is.na(OPS), ab >= ab_min)
+if (!player_name %in% league_pool$Name) {
+  stop(paste0("Player '", player_name, "' not found with ab >= ", ab_min,
+              ". Try another name or lower ab_min."))
+}
+player_row <- league_pool %>%
+  filter(Name == player_name) %>%
+  arrange(desc(ab)) %>%
+  slice(1)
+
+league_avg_ops <- mean(league_pool$OPS, na.rm = TRUE)
+ops_ecdf <- ecdf(league_pool$OPS)
+player_pct <- round(100 * ops_ecdf(player_row$OPS), 1)
+
+comp <- tibble(
+  Label = c(paste0(player_row$Name, " (", player_row$team, ")"), "League Avg"),
+  OPS   = c(player_row$OPS, league_avg_ops)
+) %>%
+  mutate(Label = factor(Label, levels = Label))
+
+#chart
+p <- plot_ly(
+  comp,
+  x = ~Label, y = ~OPS, type = "bar",
+  text = ~paste0(
+    "OPS: ", round(OPS, 3),
+    ifelse(Label == levels(Label)[1],
+           paste0("<br>Team: ", player_row$team,
+                  "<br>AB: ", player_row$ab,
+                  "<br>Percentile: ", player_pct, "th",
+                  "<br>Δ vs Lg: ", sprintf("%+.3f", player_row$OPS - league_avg_ops)),
+           "")
+  ),
+  hoverinfo = "text"
+) %>%
+  layout(
+    title = paste0("OPS Comparison: ", player_row$Name, " vs League (AB ≥ ", ab_min, ")"),
+    xaxis = list(title = "", tickangle = 0),
+    yaxis = list(title = "OPS"),
+    shapes = list(list(
+      type = "line", x0 = -0.5, x1 = 1.5, xref = "x",
+      y0 = league_avg_ops, y1 = league_avg_ops, yref = "y",
+      line = list(dash = "dash", width = 2)
+    )),
+    annotations = list(
+      list(
+        x = 1.05, y = league_avg_ops, xref = "paper", yref = "y",
+        text = paste0("League Avg: ", round(league_avg_ops, 3)),
+        showarrow = FALSE, xanchor = "left"
+      ),
+      list(
+        x = 0, y = max(comp$OPS, na.rm = TRUE), xref = "x", yref = "y",
+        text = paste0("Percentile: ", player_pct, "th<br>Δ OPS: ",
+                      sprintf("%+.3f", player_row$OPS - league_avg_ops)),
+        showarrow = FALSE, xanchor = "left", yanchor = "bottom"
+      )
+    )
+  )
+
+p
+```
+
+### Hitters vs League Average (Multiple Categories)
+
+**What it shows:** Grouped bars (one player vs league) for the four metrics; a dropdown selects the player.\
+**How to read it:** Quickly assess whether a player’s value is driven by average, on-base ability, or power.
+
+```{r}
+#| label: player_vs_league_grouped_four_fixed
+#| echo: true
+#| warning: false
+#| message: false
+library(readr)
+library(dplyr)
+library(stringr)
+library(plotly)
+ab_min <- 60     # qualifier
+hitters <- read_csv("~/Downloads/baseball_data-2.csv", show_col_types = FALSE) %>%
+  mutate(
+    Name = str_squish(Name),
+    team = str_squish(team),
+    ab   = suppressWarnings(as.numeric(ab)),
+    avg  = suppressWarnings(as.numeric(avg)),
+    obp  = suppressWarnings(as.numeric(obp)),
+    slg  = suppressWarnings(as.numeric(slg)),
+    OPS  = obp + slg
+  )
+
+league <- hitters %>% filter(!is.na(OPS), ab >= ab_min)
+stopifnot(nrow(league) > 0)
+
+metrics <- c("OPS","AVG","OBP","SLG")
+lg_means <- c(
+  OPS = mean(league$OPS, na.rm = TRUE),
+  AVG = mean(league$avg, na.rm = TRUE),
+  OBP = mean(league$obp, na.rm = TRUE),
+  SLG = mean(league$slg, na.rm = TRUE)
+)
+#bar
+get_player_row <- function(nm) {
+  league %>% filter(Name == nm) %>% arrange(desc(ab)) %>% slice(1)
+}
+get_player_vals <- function(p) {
+  c(OPS = p$OPS, AVG = p$avg, OBP = p$obp, SLG = p$slg)
+}
+players <- league %>%
+  arrange(desc(ab)) %>%
+  pull(Name) %>%
+  unique()
+
+fig <- plot_ly()
+vis <- c()  
+trace_labels <- c()
+for (i in seq_along(players)) {
+  p <- get_player_row(players[i])
+  vals <- get_player_vals(p)
+  team_nm <- p$team
+  visible_now <- (i == 1)
+
+  fig <- add_bars(
+    fig,
+    x = metrics,
+    y = as.numeric(vals),
+    name = paste0(players[i], " (", team_nm, ")"),
+    hoverinfo = "text",
+    text = paste0(
+      "<b>", players[i], "</b> (", team_nm, ")",
+      "<br>Metric: ", metrics,
+      "<br>Value: ", sprintf("%.3f", as.numeric(vals)),
+      "<br>Δ vs Lg: ", sprintf("%+.3f", as.numeric(vals) - lg_means[metrics])
+    ),
+    visible = visible_now
+  )
+  vis <- c(vis, visible_now)
+  trace_labels <- c(trace_labels, paste0(players[i], "_player"))
+
+  fig <- add_bars(
+    fig,
+    x = metrics,
+    y = as.numeric(lg_means[metrics]),
+    name = "League Avg",
+    hoverinfo = "text",
+    text = paste0(
+      "<b>League Avg</b>",
+      "<br>Metric: ", metrics,
+      "<br>Value: ", sprintf("%.3f", as.numeric(lg_means[metrics]))
+    ),
+    visible = visible_now
+  )
+  vis <- c(vis, visible_now)
+  trace_labels <- c(trace_labels, paste0(players[i], "_league"))
+}
+trace_per_player <- 2L
+n_traces <- length(players) * trace_per_player
+
+visibility_for_player <- function(idx) {
+  rep(seq_along(players) == idx, each = trace_per_player)
+}
+
+buttons <- lapply(seq_along(players), function(i) {
+  list(
+    method = "update",
+    label  = players[i],
+    args = list(
+      list(visible = visibility_for_player(i)),
+      list(title = paste0("Player vs League — OPS / AVG / OBP / SLG (AB ≥ ", ab_min, "): ", players[i]))
+    )
+  )
+})
+fig <- layout(
+  fig,
+  barmode = "group",
+  title = paste0("Player vs League — OPS / AVG / OBP / SLG (AB ≥ ", ab_min, "): ", players[1]),
+  xaxis = list(title = ""),
+  yaxis = list(title = "Value"),
+  showlegend = TRUE,
+  updatemenus = list(list(
+    type = "dropdown",
+    x = 1.05, y = 1.1, xanchor = "left",
+    showactive = TRUE,
+    buttons = buttons
+  ))
+)
+
+fig
+```
+
+## Pitching Charts
+
+### Top 10 Starting Pitchers 
+
+**What it shows:** Bar chart ranking starters by ERA with hover showing IP, K, W, WHIP and GS.\
+**How to read it:** Lower ERA is better; use IP and WHIP context to judge durability/efficiency.\
+**Interpretation tip:** ERA alone can be influenced by defense and other aspects of the game, look at WHIP and K/9 to corroborate performance.
+
+```{r}
+top_sp <- pitchers %>%
+  filter(gs >= 7, !is.na(era)) %>%
+  arrange(era) %>%
+  slice_head(n = 10) %>%
+  mutate(Name = factor(Name, levels = rev(Name)))
+
+plot_ly(
+  data = top_sp,
+  x = ~Name, y = ~era, type = "bar",
+  text = ~paste("<b>", Name, "</b>",
+                "<br>Team:", team,
+                "<br>ERA:", round(era, 2),
+                "<br>IP:", ip,
+                "<br>K:", k,
+                "<br>W:", w,
+                "<br>WHIP:", whip,
+                "<br>GS:", gs),
+  hoverinfo = "text",
+  marker = list(color = "darkred")
+) %>%
+  layout(
+    title = "Top 10 Starting Pitchers (GS ≥ 7, by ERA — lower is better)",
+    xaxis = list(title = "Pitcher", tickangle = -45),
+    yaxis = list(title = "ERA"),
+    showlegend = FALSE
+  )
+```
+
+### WAR Pitchers 
+
+**What it shows:** Table ranking pitchers by `WAR_est` derived from ERA and innings pitched.\
+**How to read it:** This gives a quick value estimate for starters; note the simplified math and describe limitations in the write-up.
+
+```{r}
+league_avg_ERA <- mean(pitchers$era, na.rm = TRUE)
+
+war_pitchers <- pitchers %>%
+  mutate(
+    WAR_est = ((league_avg_ERA - era) / 0.25) * (ip / 9) * 0.1
+  ) %>%
+  arrange(desc(WAR_est)) %>%
+  slice_head(n = 30) %>%
+  select(Name, team, era, ip, k, w, WAR_est)
+datatable(
+  war_pitchers,
+  caption = "Top 30 Pitchers (Course WAR Proxy via ERA)",
+  options = list(pageLength = 10, scrollX = TRUE),
+  rownames = FALSE
+)
+```
+
+## Fielding Charts
+
+### Chart 1, Team fielding/Fielding Percentage
+
+**What it shows:** Bar chart showing each team’s mean fielding percentage; hover shows total errors and chances.\
+**How to read it:** Higher fielding % generally indicates fewer costly miscues, but consider total chances (teams with more chances may have different contexts).\
+**Interpretation tip:** Fielding% ignores range/advanced defensive value, combine with error rate and positional context.
+
+### Chart 2, Player-level Errors vs Total Chances
+
+**What it shows:** Each point is a player; the x-axis is total chances (workload), y-axis is errors, color encodes fielding % and size encodes games played.\
+**How to read it:** Players with high chances and low errors are strong defenders; outliers with high errors for many chances warrant further review.\
+**Interpretation tip:** Use this to highlight high-usage defensive liabilities or standout regulars.
+
+```{r}
+#| label: fielding_charts
+#| echo: true
+#| warning: false
+#| message: false
+
+library(readr)
+library(dplyr)
+library(stringr)
+library(plotly)
+library(DT)
+fielding <- read_csv("~/Downloads/baseball_data_fielding.csv", show_col_types = FALSE) %>%
+  rename_with(~ tolower(.x)) %>%
+  rename(
+    f_pct = `f%`
+  ) %>%
+  mutate(
+    name = str_squish(name),
+    team = str_squish(team),
+    pos  = toupper(str_squish(pos)),
+    gp   = suppressWarnings(as.numeric(gp)),
+    tc   = suppressWarnings(as.numeric(tc)),
+    po   = suppressWarnings(as.numeric(po)),
+    a    = suppressWarnings(as.numeric(a)),
+    e    = suppressWarnings(as.numeric(e)),
+    f_pct = suppressWarnings(as.numeric(f_pct)),
+    err_rate = if_else(!is.na(tc) & tc > 0, e / tc, NA_real_)
+  )
+
+#Chart 1
+team_fielding <- fielding %>%
+  group_by(team) %>%
+  summarise(
+    avg_f_pct = mean(f_pct, na.rm = TRUE),
+    total_errors = sum(e, na.rm = TRUE),
+    total_tc = sum(tc, na.rm = TRUE),
+    n_players = n(),
+    .groups = "drop"
+  ) %>%
+  arrange(desc(avg_f_pct))
+
+p_team <- plot_ly(
+  team_fielding,
+  x = ~reorder(team, avg_f_pct),
+  y = ~avg_f_pct,
+  type = "bar",
+  text = ~paste0(
+    "Team: ", team,
+    "<br>Avg Field%: ", round(avg_f_pct, 3),
+    "<br>Total Errors: ", total_errors,
+    "<br>Total Chances: ", total_tc
+  ),
+  hoverinfo = "text"
+) %>%
+  layout(
+    title = "Team Fielding — Average Fielding % (higher is better)",
+    xaxis = list(title = "Team", tickangle = -45),
+    yaxis = list(title = "Avg Fielding %")
+  )
+p_team
+
+#Chart 2
+player_plot_df <- fielding %>% filter(!is.na(tc) & tc > 0)
+
+p_players <- plot_ly(
+  data = player_plot_df,
+  x = ~tc,
+  y = ~e,
+  type = "scatter",
+  mode = "markers",
+  marker = list(
+    sizemode = "area",
+    sizeref = 2 * max(player_plot_df$gp, na.rm = TRUE) / (40^2),
+    size = ~ifelse(is.na(gp), 6, gp)  # point size ~ games played
+  ),
+  color = ~f_pct,
+  colors = "Blue",
+  text = ~paste0(
+    "<b>", name, "</b>",
+    "<br>Team: ", team,
+    "<br>Pos: ", pos,
+    "<br>GP: ", gp,
+    "<br>Total Chances: ", tc,
+    "<br>Errors: ", e,
+    "<br>Fielding %: ", round(f_pct, 3),
+    "<br>Error Rate: ", ifelse(!is.na(err_rate), sprintf("%.3f", err_rate), "NA")
+  ),
+  hoverinfo = "text"
+) %>%
+  layout(
+    title = "Player Fielding — Errors vs Total Chances (size = GP, color = Fielding %)",
+    xaxis = list(title = "Total Chances (tc)"),
+    yaxis = list(title = "Errors (e)")
+  ) %>%
+  colorbar(title = "Fielding %")
+p_players
+
+datatable(
+  fielding %>%
+    select(name, team, pos, gp, tc, po, a, e, f_pct, err_rate) %>%
+    arrange(team, desc(gp)),
+  caption = "Fielding table (use filters to explore)",
+  options = list(pageLength = 15, scrollX = TRUE),
+  rownames = FALSE
+)
+
+```
+
+## Team Analysis 
+
+### Top 25 Players in the Crossroads League 
+
+**What it shows:** Interactive table of WAR components and a bar chart of the top 25 players by `WAR_est_mix`. Hover shows OffRuns / FieldingRuns / PosAdjRuns breakdown.\
+**How to read it:** Higher WAR_est_mix = more wins contributed above replacement-level proxy. Use the component breakdown to see whether value is offensive or defensive.\
+**Important note:** This is a experiment/approximation. Not perfectly due to lack of other stats.
+
+```{r}
+#| label: war_blended
+#| echo: true
+#| message: false
+#| warning: false
+
+library(dplyr)
+library(stringr)
+library(DT)
+library(plotly)
+# constants
+SEASON_GAMES <- 50
+RUNS_PER_WIN <- 10
+RUNS_PER_ERROR <- 0.75
+OBP_WEIGHT <- 1.8
+SLG_WEIGHT <- 1.0
+
+pos_adj_162 <- c(
+  "C" = 12.5, "SS" = 7.5, "2B" = 2.5, "CF" = 2.5, "3B" = 2.5,
+  "RF" = -7.5, "LF" = -7.5, "1B" = -12.5, "DH" = -17.5
+)
+#data
+hitters <- read.csv("~/Downloads/baseball_data-2.csv") %>%
+  mutate(
+    Name = str_squish(Name),
+    team = str_squish(team),
+    obp = as.numeric(obp),
+    slg = as.numeric(slg),
+    ab = as.numeric(ab),
+    gp = as.numeric(gp)
+  )
+
+fielding <- read.csv("~/Downloads/baseball_data_fielding.csv") %>%
+  mutate(
+    Name = str_squish(Name),
+    team = str_squish(team),
+    Pos = str_squish(Pos),
+    gp = as.numeric(gp),
+    tc = as.numeric(tc),
+    e = as.numeric(e)
+  )
+
+lg_obp <- mean(hitters$obp, na.rm = TRUE)
+lg_slg <- mean(hitters$slg, na.rm = TRUE)
+
+offense <- hitters %>%
+  mutate(
+    OffRuns = ((obp - lg_obp) * OBP_WEIGHT + (slg - lg_slg) * SLG_WEIGHT) * ab
+  ) %>%
+  select(Name, team, Pos, ab, obp, slg, OffRuns)
+
+pos_err_rate <- fielding %>%
+  filter(tc > 0, !is.na(Pos)) %>%
+  group_by(Pos) %>%
+  summarise(lg_err_rate = sum(e, na.rm = TRUE) / sum(tc, na.rm = TRUE), .groups = "drop")
+
+defense <- fielding %>%
+  left_join(pos_err_rate, by = "Pos") %>%
+  mutate(
+    err_rate = ifelse(tc > 0, e / tc, NA_real_),
+    FieldingRuns = (lg_err_rate - err_rate) * tc * RUNS_PER_ERROR,
+    PosKey = toupper(Pos),
+    pos_adj_val = ifelse(PosKey %in% names(pos_adj_162), pos_adj_162[PosKey], 0),
+    PosAdjRuns = (pos_adj_val / 162) * pmin(gp, SEASON_GAMES)
+  ) %>%
+  group_by(Name, team) %>%
+  summarise(FieldingRuns = sum(FieldingRuns, na.rm = TRUE),
+            PosAdjRuns = sum(PosAdjRuns, na.rm = TRUE),
+            .groups = "drop")
+
+#offense+defense
+war_mix <- offense %>%
+  left_join(defense, by = c("Name", "team")) %>%
+  mutate(
+    OffRuns = coalesce(OffRuns, 0),
+    FieldingRuns = coalesce(FieldingRuns, 0),
+    PosAdjRuns = coalesce(PosAdjRuns, 0),
+    Runs_Total = OffRuns + FieldingRuns + PosAdjRuns,
+    WAR_est_mix = Runs_Total / RUNS_PER_WIN
+  ) %>%
+  arrange(desc(WAR_est_mix))
+datatable(
+  war_mix,
+  caption = "Estimated WAR (Hitting + Fielding + Positional Adjustment)",
+  options = list(pageLength = 15, scrollX = TRUE),
+  rownames = FALSE
+)
+top_war <- war_mix %>%
+  slice_max(WAR_est_mix, n = 25) %>%
+  mutate(Name = factor(Name, levels = rev(Name)))
+
+plot_ly(
+  top_war,
+  x = ~Name,
+  y = ~WAR_est_mix,
+  type = "bar",
+  text = ~paste("Team:", team,
+                "<br>OffRuns:", round(OffRuns, 1),
+                "<br>FieldingRuns:", round(FieldingRuns, 1),
+                "<br>PosAdjRuns:", round(PosAdjRuns, 1),
+                "<br>Total Runs:", round(Runs_Total, 1)),
+  hoverinfo = "text",
+  marker = list(color = "darkblue")
+) %>%
+  layout(
+    title = "Top 25 Players by Estimated WAR (Crossroads League)",
+    xaxis = list(title = "Player", tickangle = -45),
+    yaxis = list(title = "Estimated WAR"),
+    showlegend = FALSE
+  )
+
+```
+
+### Wins Predictor Using Pythagorean Expectation
+
+**What it shows:** Table and bar chart of predicted wins for each team derived from estimated runs scored (RBI proxy) and runs allowed (ERA/IP).\
+**How to read it:** Higher bars = higher expected wins. Use this to compare how predictive runs align with WAR and TeamPower.
+
+```{r}
+#| label: team_win_predictor
+#| echo: true
+#| message: false
+#| warning: false
+
+library(dplyr)
+library(DT)
+library(plotly)
+
+hitters <- read.csv("~/Downloads/baseball_data-2.csv")
+pitchers <- read.csv("~/Downloads/baseball_data_pitchers.csv")
+
+hitters <- hitters %>%
+  mutate(
+    team = trimws(team),
+    rbi = as.numeric(rbi),
+    gp = as.numeric(gp)
+  )
+
+pitchers <- pitchers %>%
+  mutate(
+    team = trimws(team),
+    r = as.numeric(r),
+    er = as.numeric(er),
+    ip = as.numeric(ip),
+    era = as.numeric(era)
+  )
+team_runs_scored <- hitters %>%
+  group_by(team) %>%
+  summarise(Runs_Scored = sum(rbi, na.rm = TRUE))
+team_runs_allowed <- pitchers %>%
+  group_by(team) %>%
+  summarise(Runs_Allowed = sum(era * ip / 9, na.rm = TRUE))
+
+team_summary <- full_join(team_runs_scored, team_runs_allowed, by = "team") %>%
+  mutate(
+    Runs_Scored = coalesce(Runs_Scored, 0),
+    Runs_Allowed = coalesce(Runs_Allowed, 0),
+    Exponent = 1.83,
+    Win_Pct = (Runs_Scored^Exponent) / ((Runs_Scored^Exponent) + (Runs_Allowed^Exponent)),
+    Predicted_Wins = Win_Pct * 50
+  ) %>%
+  arrange(desc(Predicted_Wins))
+datatable(
+  team_summary,
+  caption = "Predicted Team Wins (Pythagorean Expectation)",
+  options = list(pageLength = 10, scrollX = TRUE),
+  rownames = FALSE
+)
+plot_ly(
+  team_summary,
+  x = ~reorder(team, Predicted_Wins),
+  y = ~Predicted_Wins,
+  type = "bar",
+  text = ~paste("Runs Scored:", round(Runs_Scored, 0),
+                "<br>Runs Allowed:", round(Runs_Allowed, 0),
+                "<br>Predicted Wins:", round(Predicted_Wins, 1)),
+  hoverinfo = "text",
+  marker = list(color = "royalblue")
+) %>%
+  layout(
+    title = "Predicted Wins by Team (Crossroads League)",
+    xaxis = list(title = "Team", tickangle = -45),
+    yaxis = list(title = "Predicted Wins (out of 50)")
+  )
+
+```
+
+### Team Offensive Strength 
+
+**What it shows:** Each point is a team; hover reveals OPS, HR, and RBI totals.\
+**How to read it:** Upper-right quadrant = teams that both get on base and hit for power (most dangerous offensively).
+
+### Team Pitching Efficiency 
+
+**What it shows:** Each point is a team; hover reveals ERA, strikeouts, wins and WHIP.\
+**How to read it:** Lower ERA with high strikeouts indicates strong run prevention and swing-and-miss ability
+
+```{r}
+#| label: team_analysis_charts
+#| echo: true
+#| warning: false
+#| message: false
+
+library(readr)
+library(dplyr)
+library(plotly)
+library(stringr)
+hitting <- read_csv("~/Downloads/baseball_data-2.csv", show_col_types = FALSE) %>%
+  rename_with(~tolower(.x)) %>%
+  mutate(
+    team = str_squish(team),
+    ops = obp + slg,  # computed OPS
+    avg = as.numeric(avg),
+    hr = as.numeric(hr),
+    rbi = as.numeric(rbi)
+  )
+
+pitching <- read_csv("~/Downloads/baseball_data_pitchers.csv", show_col_types = FALSE) %>%
+  rename_with(~tolower(.x)) %>%
+  mutate(
+    team = str_squish(team),
+    era = as.numeric(era),
+    whip = as.numeric(whip),
+    k = as.numeric(k),
+    w = as.numeric(w)
+  )
+team_offense <- hitting %>%
+  group_by(team) %>%
+  summarise(
+    avg_ops = mean(ops, na.rm = TRUE),
+    total_hr = sum(hr, na.rm = TRUE),
+    total_rbi = sum(rbi, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+p_offense <- plot_ly(
+  team_offense,
+  x = ~avg_ops,
+  y = ~total_hr,
+  type = "scatter",
+  mode = "markers+text",
+  text = ~team,
+  textposition = "top center",
+  marker = list(size = 12, color = "dodgerblue"),
+  hovertext = ~paste0(
+    "<b>", team, "</b><br>",
+    "OPS: ", round(avg_ops, 3),
+    "<br>HR: ", total_hr,
+    "<br>RBI: ", total_rbi
+  ),
+  hoverinfo = "text"
+) %>%
+  layout(
+    title = "Team Offensive Strength — OPS vs Total Home Runs",
+    xaxis = list(title = "Average OPS"),
+    yaxis = list(title = "Total Home Runs")
+  )
+
+p_offense
+
+#chart2
+team_pitching <- pitching %>%
+  group_by(team) %>%
+  summarise(
+    avg_era = mean(era, na.rm = TRUE),
+    total_k = sum(k, na.rm = TRUE),
+    total_wins = sum(w, na.rm = TRUE),
+    avg_whip = mean(whip, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+p_pitching <- plot_ly(
+  team_pitching,
+  x = ~avg_era,
+  y = ~total_k,
+  type = "scatter",
+  mode = "markers+text",
+  text = ~team,
+  textposition = "top center",
+  marker = list(size = 12, color = "darkorange"),
+  hovertext = ~paste0(
+    "<b>", team, "</b><br>",
+    "ERA: ", round(avg_era, 2),
+    "<br>Strikeouts: ", total_k,
+    "<br>Wins: ", total_wins,
+    "<br>WHIP: ", round(avg_whip, 2)
+  ),
+  hoverinfo = "text"
+) %>%
+  layout(
+    title = "Team Pitching Efficiency — ERA vs Total Strikeouts",
+    xaxis = list(title = "Average ERA (lower is better)"),
+    yaxis = list(title = "Total Strikeouts (higher is better)")
+  )
+
+p_pitching
+
+```
+
+### Team Power Index
+
+**What it shows:** Ranked bar chart and table showing a single composite score that blends offense and pitching performance. Hover shows components and z-scores.\
+**How to read it:** Higher index = stronger overall team. Use the table to see whether teams are driven by offense or pitching.
+
+```{r}
+#| label: team_power_index
+#| echo: true
+#| warning: false
+#| message: false
+
+library(readr)
+library(dplyr)
+library(stringr)
+library(plotly)
+library(DT)
+off_weight <- 0.5   # weight for offense (OPS z-score)
+pit_weight <- 0.5   # weight for pitching (ERA inverted z-score)
+season_games <- 50  # for reference if needed
+hitting <- read_csv("~/Downloads/baseball_data-2.csv", show_col_types = FALSE) %>%
+  rename_with(~tolower(.x)) %>%
+  mutate(
+    team = str_squish(team),
+    obp = as.numeric(obp),
+    slg = as.numeric(slg),
+    ops = obp + slg,
+    hr = as.numeric(hr),
+    rbi = as.numeric(rbi)
+  )
+
+pitching <- read_csv("~/Downloads/baseball_data_pitchers.csv", show_col_types = FALSE) %>%
+  rename_with(~tolower(.x)) %>%
+  mutate(
+    team = str_squish(team),
+    era = as.numeric(era),
+    ip = as.numeric(ip),
+    so = as.numeric(k) %||% as.numeric(so), # try k then so if present
+    w = as.numeric(w)
+  )
+team_offense <- hitting %>%
+  group_by(team) %>%
+  summarise(
+    avg_ops = mean(ops, na.rm = TRUE),
+    total_hr = sum(hr, na.rm = TRUE),
+    total_rbi = sum(rbi, na.rm = TRUE),
+    n_hit = n(),
+    .groups = "drop"
+  )
+
+team_pitching <- pitching %>%
+  group_by(team) %>%
+  summarise(
+    avg_era = mean(era, na.rm = TRUE),
+    total_ip = sum(ip, na.rm = TRUE),
+    total_so = sum(so, na.rm = TRUE),
+    total_w = sum(w, na.rm = TRUE),
+    n_pitch = n(),
+    .groups = "drop"
+  )
+
+team_tbl <- full_join(team_offense, team_pitching, by = "team") %>%
+  mutate(
+    avg_ops = coalesce(avg_ops, 0),
+    avg_era = coalesce(avg_era, NA_real_)
+  )
+
+# compute z-scores (make ERA "higher is better" by negating it) 
+safe_z <- function(x) {
+  if (all(is.na(x)) || length(na.omit(x)) <= 1 || sd(na.omit(x)) == 0) {
+    return(rep(0, length(x)))
+  } else {
+    (x - mean(x, na.rm = TRUE)) / sd(x, na.rm = TRUE)
+  }
+}
+
+team_tbl <- team_tbl %>%
+  mutate(
+    ops_z = safe_z(avg_ops),
+    era_inv = -avg_era,        
+    era_z = safe_z(era_inv),
+    TeamPower_raw = off_weight * ops_z + pit_weight * era_z,
+    TeamPower = (TeamPower_raw - min(TeamPower_raw, na.rm = TRUE)) / 
+                (max(TeamPower_raw, na.rm = TRUE) - min(TeamPower_raw, na.rm = TRUE)) * 100
+  ) %>%
+  arrange(desc(TeamPower))
+
+#team power index plot
+plot_df <- team_tbl %>%
+  arrange(TeamPower) %>%
+  mutate(team = factor(team, levels = unique(team)))
+
+p_power <- plot_ly(
+  plot_df,
+  x = ~team,
+  y = ~TeamPower,
+  type = "bar",
+  text = ~paste0(
+    "<b>", team, "</b>",
+    "<br>TeamPower: ", round(TeamPower, 1),
+    "<br>OPS: ", round(avg_ops, 3),
+    "<br>ERA: ", ifelse(is.na(avg_era), "NA", round(avg_era, 2)),
+    "<br>OPS z: ", round(ops_z, 2),
+    "<br>ERA z (inv): ", round(era_z, 2)
+  ),
+  hoverinfo = "text"
+) %>%
+  layout(
+    title = paste0("Team Power Index (combined offense & pitching)"),
+    xaxis = list(title = "Team", tickangle = -45),
+    yaxis = list(title = "Team Power (0-100)"),
+    margin = list(b = 140)  # room for long team names
+  )
+table_df <- team_tbl %>%
+  select(team, avg_ops, avg_era, ops_z, era_z, TeamPower) %>%
+  mutate(
+    avg_ops = round(avg_ops, 3),
+    avg_era = ifelse(is.na(avg_era), NA, round(avg_era, 2)),
+    ops_z = round(ops_z, 2),
+    era_z = round(era_z, 2),
+    TeamPower = round(TeamPower, 1)
+  ) %>%
+  arrange(desc(TeamPower))
+
+dt_power <- datatable(
+  table_df,
+  caption = "Team Power Index — components and rank",
+  options = list(pageLength = 10, scrollX = TRUE),
+  rownames = FALSE
+)
+p_power
+dt_power
+
+```
+
+# General Notes 
+
+**Data & scope**
+
+-   Data are from the Crossroads League season CSVs provided (hitters, pitchers, fielding). All analyses reflect the season as recorded in those files and assume the data are final and cleaned.
+
+-   The project uses a**50-game college season** as the reference for season-level scaling (for example, positional adjustments are prorated to 50 games).
+
+**Key calculations & shortcuts**
+
+-   **OPS** = OBP + SLG (computed where not present).
+
+-   **WAR_estimates** are classroom proxies:
+
+    -   Hitting WAR proxy: OPS-based `(OPS − league_avg_OPS) / 0.12`.
+
+    -   Pitching WAR proxy: ERA-based model that scales by innings (not official WAR).
+
+    -   Blended WAR (`WAR_est_mix`) combines Offensive Runs (OPS-based), Fielding Runs (error-rate vs. position), and a positional adjustment; final runs = wins using `10 runs ≈ 1 win`.
+
+-   **Team win predictions** use the Pythagorean expectation with exponent =**1.83**, scaled to a 50-game season; runs scored are estimated from hitting aggregates (e.g., RBI proxy), and runs allowed from pitching (ERA × IP / 9).
+
+**Assumptions & limitations**
+
+-   Many metrics here are **approximations** . They omit advanced adjustments that professional metrics use (park factors, base-running, defensive range, bullpen context, replacement-level baselines, play-by-play event weighting, etc.).
+
+-   Fielding value is approximated from **error rates** and fielding percentage; these measures do not capture range, defensive runs saved, or subtle positioning differences.
+
+-   Using RBI as a proxy for team runs scored is imperfect (RBI undercounts some run contexts), treat the Pythagorean predictions as indicative, not definitive.
+
+-   Small sample sizes: players with limited AB or IP can produce unstable rate stats. Many charts apply simple qualifiers (e.g., AB ≥ 60, GS ≥ 7) to reduce noise.
+
+# Key Terms and Metrics
+
+Below is a short glossary of key baseball and analytical terms used throughout this project.\
+It provides quick definitions for both baseball-specific and statistical metrics.
+
+| Term | Definition |
+|-----------------------|-------------------------------------------------|
+| **AB (At-Bats)** | The number of official batting attempts, excluding walks, sacrifices, or hit-by-pitch. |
+| **AVG (Batting Average)** | Hits divided by at-bats, measures how often a player gets a hit. |
+| **OBP (On-Base Percentage)** | How often a player reaches base (via hits, walks, or hit-by-pitch). |
+| **SLG (Slugging Percentage)** | Measures the total number of bases per at-bat , shows a hitter’s power. |
+| **OPS (On-base Plus Slugging)** | OBP + SLG, a combined measure of a hitter’s ability to get on base and hit for power. |
+| **RBI (Runs Batted In)** | The number of runners who score because of a player's hit, walk, or sacrifice. |
+| **HR (Home Runs)** | The number of times a player hits the ball and scores by circling all bases in one play. |
+| **XBH (Extra Base Hits)** | Total of doubles, triples, and home runs, hits that go for more than one base. |
+| **ERA (Earned Run Average)** | The average number of earned runs a pitcher allows per 9 innings pitched. Lower = better. |
+| **WHIP (Walks + Hits per Inning Pitched)** | Measures how many baserunners a pitcher allows per inning; lower values indicate better control. |
+| **IP (Innings Pitched)** | Total innings a pitcher has thrown. One inning = three outs. |
+| **GS (Games Started)** | The number of games in which a pitcher was the first to appear for their team. |
+| **WAR (Wins Above Replacement)** | An overall measure of a player’s value in wins compared to a replacement-level player. |
+| **F% (Fielding Percentage)** | (Putouts + Assists) / (Putouts + Assists + Errors) — measures defensive reliability. |
+| **Error (E)** | A misplay by a fielder allowing a batter or runner to advance when they shouldn’t have. |
+| **Total Chances (TC)** | The sum of all defensive opportunities (Putouts + Assists + Errors). |
+| **Pythagorean Expectation** | A formula that estimates a team’s expected win percentage based on runs scored and allowed. |
+| **Runs Per Win** | Roughly 10 runs are equivalent to one additional team win, used in WAR estimates. |
+| **Positional Adjustment** | A WAR correction factor accounting for defensive difficulty at each position (e.g., catcher vs. first base). |
+| **Team Power Index** | A composite score combining offensive and pitching z-scores to rank team strength. |
+| **Slugger** | A power hitter known for producing extra-base hits and home runs. |
+| **Ace** | A team’s best starting pitcher. |
+| **Bullpen** | Group of relief pitchers used after the starter leaves the game. |
+| **Walk-Off** | A hit or play that ends the game immediately with the home team winning. |
+| **Shutout** | When a team allows zero runs in a complete game. |
+| **Double Play (DP)** | Two outs made in one continuous play. |
+| **Lineup** | The batting order of players for a game. |

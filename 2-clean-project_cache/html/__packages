@@ -1,0 +1,9 @@
+readr
+dplyr
+tidyr
+stringr
+DT
+ggplot2
+plotly
+scales
+janitor
