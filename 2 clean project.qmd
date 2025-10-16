@@ -14,8 +14,8 @@ format:
     code-summary: "Show Code"
     smooth-scroll: true
     toc-depth: 3
-    embed-resources: true     # <— add this
-    self-contained: true      # <— and this
+    embed-resources: true     #  html fix
+    self-contained: true      
 execute:
   echo: true
   warning: false
